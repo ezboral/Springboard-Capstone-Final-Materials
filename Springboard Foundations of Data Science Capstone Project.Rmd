@@ -1,0 +1,673 @@
+---
+title: "Springboard Foundations of Data Science Capstone Project"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Predicting the Accuracy of Credit Card Default
+
+## Introduction
+
+Credit cards are a large part of our financial lives in the US. What started out as a niche product mostly for business transactions has spread to every every segment of the population. In fact, data from the Federal Reserve shows that total revolving debt has exploded from just over \$1.3 billion in 1968 to nearly \$1 trillion at the end of 2016, an annual growth rate of more than 18%. [Outsanding Revolving Debt](https://www.federalreserve.gov/releases/g19/hist/cc_hist_sa_levels.html)
+
+## The Problem
+
+With such a large market of borrowers, credit card issuers have to find effective but scalable solutions to screen potential card holders for their ability and likelihood to pay off their debt. Failure to do so can mean outstanding loans are never paid off, and an issuer loses money or has to write-off the loan. At the end of 2016, the average credit card write-off rate was 3.32% for the top 100 US banks ranked by assets. [Wrie off Data](https://fred.stlouisfed.org/series/CORCCT100S)
+
+In addition, for households that carry an unpaid credit card balance each month, the average debt was just over \$8,000 at the end of 2016, a 6% increase from 2015. [Household Balance](https://www.cnbc.com/2017/05/17/how-much-the-average-us-family-has-in-credit-card-debt.html)
+
+When one considers how quickly revolving debt use has grown, as well as the increasing outstanding unpaid balance of households, its clear that a predictive model of default can be very valuable to credit card issuers.
+
+Our goal in this analysis is to help financial institutions reduce their credit card loan write-off rates by identifying the traits of borrowers most and least likely to default. We will attempt to build a model that can explain which factors have predictive power.
+
+## Data Set
+
+While not focused on the US market, the data set for this project looked at one response variable, default or payment of credit card debt for 30,000 Taiwanese credit card holders in October 2005.
+
+* Client action (0 = no default,  1 = default)<br/>
+
+The following 23 independent variables were also included.
+
+1: Credit limit available to the borrower (ranging from \$10,000 to \$1,000,000)<br/>
+2: Gender (1 = male; 2 = female)<br/>
+3: Education level (1 = graduate school; 2 = university; 3 = high school; 0, 4, 5, 6 = other)<br/>
+4: Marriage status (1 = married; 2 = single; 3 = divorce; 0 = other)<br/>
+5: Age in years (ranging from 21 to 79)<br/>
+6-11: History of past payment (six variables, April to September of 2005)<br/> 
+    * The payment scale:
+    + -2 = No consumption (card holder has nothing due and didn't access line of credit)<br/> 
+    + -1 = Paid in full (previous balance has been paid off)<br/> 
+    + 0 = Revolving credit (previous balance not fully paid off)<br/>
+    + 1 = Payment delay for 1 month; 2 = payment delay for 2 months;...; 9 = payment delay for 9 months and above<br/>
+12-17: Monthly balance for past six months (April - September of 2005)<br/>
+18:23: Amount of previous monthly payment for past six months (April - September of 2005)<br/>
+
+Data is available at the following link: 
+[Data set](http://archive.ics.uci.edu/ml/datasets/default+of+credit+card+clients)
+
+## Data Limitations
+
+Two variables not included in the data set are the credit score and annual income of the borrower. Both of these variables are considered important data points for financial institutions that issue credit cards. Any conclusions from this study should take into account that these two variables were not included.
+
+Another limitation is the study's narrow focus on the Taiwanese credit card market. The health of the Taiwanese economy, domestic interest rates at the time of the study, and local political or cultural factors may have had an effect on the default rate that may be less relevant in other populations.  
+
+Additionally, interest assessed on outstanding debt is not included in the data set. While this study attempts to assign probabilities of default to different types of loans, a more complete analysis would combine the likelihood of default with potential return. This would give card issuers the ability to predict expected profit for different types of loans. 
+
+Finally, 2005 was a period where many Taiwanese financial institutions greatly expanded credit card issuance with little to no regard for the ability of borrowers to repay. In addition, card holders accumulated higher than average balances during this period. This resulted in abnormally high default rates in the Taiwanese market.  Credit card lending in Taiwan during this period was similar in some ways to the mortgage loan market in the US leading up to the 2008 housing crisis. Any conclusions about who fits the profile of a risky cardholder must take into account the lax lending practices of issuers during the period of this study. 
+
+## Data Wrangling
+
+``` {r, warning = FALSE, message = FALSE, echo = FALSE, results = "hide"}
+library(readr)
+library(plyr)
+library(tidyr)
+library(dplyr)
+library(varhandle)
+library(ggplot2)
+library(caTools)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+dcc <- read_csv("~/dcc.csv")
+```
+
+The data set was comprehensive with no missing values. It required some simple cleanup and reformatting. The steps taken are described below. For a detailed review of code, an R markdown document explaining each step with code is included.
+
+``` {r eval = TRUE, echo = FALSE, results = "hide"}
+# Look at structure of dcc
+str(dcc)
+```
+
+Columns and rows not needed for analysis were removed. For example, an ID column and a row duplicating the name of each variable were removed.  In addition, column headings in the data set needed to be transformed from ambiguous names such as X1, X2 etc. to names which give a clear description of each variable such as Limit Amount and Gender.
+
+``` {r eval = TRUE, echo = FALSE, results = "hide"}
+# Change column names from X1, X2 etc to the value in row 2
+colnames(dcc) <- dcc[1,]
+
+# Delete row 2 to remove duplicate titles
+dcc = dcc[-1,]
+
+# Remove ID column (column #1)
+dcc <- dcc[-1]
+
+# Clean up column names
+names(dcc) <- c("LimitAmt", "Gender", "Education", "Marriage", "Age", "StatusSep05", "StatusAug05"
+                , "StatusJul05", "StatusJun05", "StatusMay05", "StatusApr05", "BalSep05", "BalAug05",
+                "BalJul05", "BalJun05", "BalMay05", "BalApr05", "PayAmtSep05", "PayAmtAug05",
+                "PayAmtJul05", "PayAmtJun05", "PayAmtMay05", "PayAmtApr05", "DefaultOct05")
+```
+
+After importing the data set into R, it was converted from a tibble to a data frame, and all variables were converted from a character to numeric type. Both of these transformations were needed in order to conduct preliminary exploration and data visualization. 
+
+``` {r eval = TRUE, echo = FALSE, results = "hide"}
+# Transform data set to data frame
+dcc <- as.data.frame(dcc)
+```
+
+``` {r eval = TRUE, echo = FALSE, results = "hide"}
+# Convert each column from character to numeric
+dcc[] <- lapply(dcc, function(x) as.numeric(x))
+```
+
+Each variable had multiple values. Some of these represented the same value and needed to be merged together.  For example, in the Education column, the values 0, 4, 5, and 6 all represented "Other". We merged variables 4, 5, and 6 to 0 in order to simplify the analysis.
+
+``` {r eval = TRUE, echo = FALSE, results = "hide"}
+# Convert values 4,5, and 6 in Education column to 0 as they all represent "Other"
+dcc$Education[dcc$Education == 4] <- 0
+dcc$Education[dcc$Education == 5] <- 0
+dcc$Education[dcc$Education == 6] <- 0
+```
+
+Depending on the type of analysis or visualization being created, some variables needed to have the factor type, while other needed the numeric type. Instead of transforming the types back and forth which has a high chance of leading to error, we created duplicate columns of certain existing variables and converted them to factor.  For example, Gender and Education existed as numeric. Two new columns called Gender1 and Education1 were created and then converted to factor. 
+
+``` {r eval = TRUE, echo = FALSE, results = "hide"}
+# Add duplicate columns with different character types
+dcc$Gender1 <- paste(dcc$Gender)
+dcc$Education1 <- paste(dcc$Education)
+dcc$Marriage1 <- paste(dcc$Marriage)
+dcc$Status1Sep05 <- paste(dcc$StatusSep05)
+dcc$Status1Aug05 <- paste(dcc$StatusAug05)
+dcc$Status1Jul05 <- paste(dcc$StatusJul05)
+dcc$Status1Jun05 <- paste(dcc$StatusJun05)
+dcc$Status1May05 <- paste(dcc$StatusMay05)
+dcc$Status1Apr05 <- paste(dcc$StatusApr05)
+dcc$Default1Oct05 <- paste(dcc$DefaultOct05)
+```
+
+Values for each variable were renamed to give a better description of the possibilities for each variable.  For example, 1 and 2 were renamed to Male and Female for the Gender variable.
+
+``` {r eval = TRUE, echo = FALSE, results = "hide"}
+# Change values from integer to categorical for Sex, Education, Marriage, Default columns
+
+dcc$Gender1 <- factor(dcc$Gender1)    
+levels(dcc$Gender1) <- c("Male", "Female")
+
+dcc$Education1 <- factor(dcc$Education1)
+levels(dcc$Education1) <- c("Other", "GradSch", "Bachelors", "HS")
+
+dcc$Marriage1 <- factor(dcc$Marriage1)
+levels(dcc$Marriage1) <- c("Div", "Mar", "Single", "Div")
+
+dcc$Default1Oct05 <- factor(dcc$Default1Oct05)  #NDef and Def stand for No Default and Default
+levels(dcc$Default1Oct05) <- c("No Default", "Default")
+
+# Change values from integer to categorical for payment status columns from Apr05 to May05
+
+dcc$Status1Sep05 <- factor(dcc$Status1Sep05)
+dcc$Status1Aug05 <- factor(dcc$Status1Aug05)
+dcc$Status1Jul05 <- factor(dcc$Status1Jul05)
+dcc$Status1Jun05 <- factor(dcc$Status1Jun05)
+dcc$Status1May05 <- factor(dcc$Status1May05)
+dcc$Status1Apr05 <- factor(dcc$Status1Apr05)
+
+# Change values from -2, -1, etc to character strings
+
+levels(dcc$Status1Sep05)<- c("SepPaid", "SepNoCons", "SepRev", "Sep1MoD", "Sep2MoD", "Sep3MoD", "Sep4MoD", "Sep5MoD", "Sep6MoD", "Sep7MoD", "Sep8MoD")
+levels(dcc$Status1Aug05)<- c("AugPaid", "AugNoCons", "AugRev", "Aug1MoD", "Aug2MoD", "Aug3MoD", "Aug4MoD", "Aug5MoD", "Aug6MoD", "Aug7MoD", "Aug8MoD")
+levels(dcc$Status1Jul05)<- c("JulPaid", "JulNoCons", "JulRev", "Jul1MoD", "Jul2MoD", "Jul3MoD", "Jul4MoD", "Jul5MoD", "Jul6MoD", "Jul7MoD", "Jul8MoD")
+levels(dcc$Status1Jun05)<- c("JunPaid", "JunNoCons", "JunRev", "Jun1MoD", "Jun2MoD", "Jun3MoD", "Jun4MoD", "Jun5MoD", "Jun6MoD", "Jun7MoD", "Jun8MoD")
+levels(dcc$Status1May05)<- c("MayPaid", "MayNoCons", "MayRev", "May2MoD", "May3MoD", "May4MoD", "May5MoD", "May6MoD", "May7MoD", "May8MoD")
+levels(dcc$Status1Apr05)<- c("AprPaid", "AprNoCons", "AprRev", "Apr2MoD", "Apr3MoD", "Apr4MoD", "Apr5MoD", "Apr6MoD", "Apr7MoD", "Apr8MoD")
+```
+
+Finally, we created bins for variables that had continuous values (monthly balance, Age, Limit Amount etc). We segmented into bins in order to study how each segment effects the default rate differently. The distribution of data points with the highest concentration was split into smaller bin sizes, while those with fewer data points had wider bin sizes. For example, there were far more borrowers with lower credit limits and than those with higher credit limits. As a result, there were more bins representing cardholders with lower limits.
+
+``` {r eval = TRUE, echo = FALSE, results = "hide"}
+# Create bins for credit limit and age so we can group borrowers into different categories
+# The LAmtCut and AgeCut variables represent where the cutoff for each bin is
+
+dcc$LimitAmtBin <- paste(dcc$LimitAmt)
+dcc$LimitAmtBin <- as.numeric(as.character(dcc$LimitAmtBin))
+sapply(dcc$LimitAmtBin, class)
+LAmtCut <- cut(dcc$LimitAmtBin, breaks = c(0, 10000, 25000, 50000, 100000, 250000, 500000, 1000000),
+               labels = c("10KLimit", "25KLimit", "50KLimit", "100KLimit", "250KLimit", "500KLimit", "1MilLimit"))
+dcc$LimitAmtBin <- LAmtCut
+
+dcc$AgeBin <- paste(dcc$Age)
+dcc$AgeBin <- as.numeric(as.character(dcc$AgeBin))
+sapply(dcc$AgeBin, class)
+AgeCut <- cut(dcc$AgeBin, breaks = c(20, 25, 30, 35, 40, 50, 60, 80),
+              labels = c("25Y", "30Y", "35Y", "40Y", "50Y", "60Y", "80Y"))
+dcc$AgeBin <- AgeCut
+```
+
+``` {r eval = TRUE, echo = FALSE, results = "hide"}
+# Creat bins for monthly balance and monthly pay amount variables in order to group into categories
+dcc$BalBinSep05 <- paste(dcc$BalSep05)
+dcc$BalBinSep05 <- as.numeric(as.character(dcc$BalBinSep05))
+sapply(dcc$BalBinSep05, class)
+BalSepCut <- cut(dcc$BalBinSep05, breaks = c(-1000000, -1, 0, 3000, 10000, 25000, 50000, 100000, 250000, 500000, 1000000),
+                 labels = c("NegSepBal", "ZeroSepBal", "3KSepBal", "10KSepBal", "25KSepBal", "50KSepBal", "100KSepBal", "250KSepBal", "500KSepBal", "1milSepBal"))
+dcc$BalBinSep05 <- BalSepCut
+
+dcc$BalBinAug05 <- paste(dcc$BalAug05)
+dcc$BalBinAug05 <- as.numeric(as.character(dcc$BalBinAug05))
+sapply(dcc$BalBinAug05, class)
+BalAugCut <- cut(dcc$BalBinAug05, breaks = c(-1000000, -1, 0, 3000, 10000, 25000, 50000, 100000, 250000, 500000, 1000000),
+                 labels = c("NegAugBal", "ZeroAugBal", "3KAugBal", "10KAugBal", "25KAugBal", "50KAugBal", "100KAugBal", "250KAugBal", "500KAugBal", "1milAugBal"))
+dcc$BalBinAug05 <- BalAugCut
+
+dcc$BalBinJul05 <- paste(dcc$BalJul05)
+dcc$BalBinJul05 <- as.numeric(as.character(dcc$BalBinJul05))
+sapply(dcc$BalBinJul05, class)
+BalJulCut <- cut(dcc$BalBinJul05, breaks = c(-1000000, -1, 0, 3000, 10000, 25000, 50000, 100000, 250000, 500000, 1000000),
+                 labels = c("NegJulBal", "ZeroJulBal", "3KJulBal", "10KJulBal", "25KJulBal", "50KJulBal", "100KJulBal", "250KJulBal", "500KJulBal", "1milJulBal"))
+dcc$BalBinJul05 <- BalJulCut
+
+dcc$BalBinJun05 <- paste(dcc$BalJun05)
+dcc$BalBinJun05 <- as.numeric(as.character(dcc$BalBinJun05))
+sapply(dcc$BalBinJun05, class)
+BalJunCut <- cut(dcc$BalBinJun05, breaks = c(-1000000, -1, 0, 3000, 10000, 25000, 50000, 100000, 250000, 500000, 1000000),
+                 labels = c("NegJunBal", "ZeroJunBal", "3KJunBal", "10KJunBal", "25KJunBal", "50KJunBal", "100KJunBal", "250KJunBal", "500KJunBal", "1milJunBal"))
+dcc$BalBinJun05 <- BalJunCut
+
+dcc$BalBinMay05 <- paste(dcc$BalMay05)
+dcc$BalBinMay05 <- as.numeric(as.character(dcc$BalBinMay05))
+sapply(dcc$BalBinMay05, class)
+BalMayCut <- cut(dcc$BalBinMay05, breaks = c(-1000000, -1, 0, 3000, 10000, 25000, 50000, 100000, 250000, 500000, 1000000),
+                 labels = c("NegMayBal", "ZeroMayBal", "3KMayBal", "10KMayBal", "25KMayBal", "50KMayBal", "100KMayBal", "250KMayBal", "500KMayBal", "1milMayBal"))
+dcc$BalBinMay05 <- BalMayCut
+
+dcc$BalBinApr05 <- paste(dcc$BalApr05)
+dcc$BalBinApr05 <- as.numeric(as.character(dcc$BalBinApr05))
+sapply(dcc$BalBinApr05, class)
+BalAprCut <- cut(dcc$BalBinApr05, breaks = c(-1000000, -1, 0, 3000, 10000, 25000, 50000, 100000, 250000, 500000, 1000000),
+                 labels = c("NegAprBal", "ZeroAprBal", "3KAprBal", "10KAprBal", "25KAprBal", "50KAprBal", "100KAprBal", "250KAprBal", "500KAprBal", "1milAprBal"))
+dcc$BalBinApr05 <- BalAprCut
+
+dcc$PayAmtBinSep05 <- paste(dcc$PayAmtSep05)
+dcc$PayAmtBinSep05 <- as.numeric(as.character(dcc$PayAmtBinSep05))
+sapply(dcc$PayAmtBinSep05, class)
+PaySepCut <- cut(dcc$PayAmtBinSep05, breaks = c(-1000000, 0, 1000, 1500, 2000, 2500, 5000, 10000, 25000, 100000, 1000000),
+                 labels = c("ZeroPayAmtSep", "1KPayAmtSep", "1.5KPayAmtSep", "2KPayAmtSep", "2.5KPayAmtSep", "5KPayAmtSep", "10KPayAmtSep", "25KPayAmtSep", "100KPayAmtSep", ">100KPayAmtSep"))
+dcc$PayAmtBinSep05 <- PaySepCut
+
+dcc$PayAmtBinAug05 <- paste(dcc$PayAmtAug05)
+dcc$PayAmtBinAug05 <- as.numeric(as.character(dcc$PayAmtBinAug05))
+sapply(dcc$PayAmtBinAug05, class)
+PayAugCut <- cut(dcc$PayAmtBinAug05, breaks = c(-1000000, 0, 1000, 1500, 2000, 2500, 5000, 10000, 25000, 100000, 1000000),
+                 labels = c("ZeroPayAmtAug", "1KPayAmtAug", "1.5KPayAmtAug", "2KPayAmtAug", "2.5KPayAmtAug", "5KPayAmtAug", "10KPayAmtAug", "25KPayAmtAug", "100KPayAmtAug", ">100KPayAmtAug"))
+dcc$PayAmtBinAug05 <- PayAugCut
+
+dcc$PayAmtBinJul05 <- paste(dcc$PayAmtJul05)
+dcc$PayAmtBinJul05 <- as.numeric(as.character(dcc$PayAmtBinJul05))
+sapply(dcc$PayAmtBinJul05, class)
+PayJulCut <- cut(dcc$PayAmtBinJul05, breaks = c(-1000000, 0, 1000, 1500, 2000, 2500, 5000, 10000, 25000, 100000, 1000000),
+                 labels = c("ZeroPayAmtJul", "1KPayAmtJul", "1.5KPayAmtJul", "2KPayAmtJul", "2.5KPayAmtJul", "5KPayAmtJul", "10KPayAmtJul", "25KPayAmtJul", "100KPayAmtJul", ">100KPayAmtJul"))
+dcc$PayAmtBinJul05 <- PayJulCut
+
+dcc$PayAmtBinJun05 <- paste(dcc$PayAmtJun05)
+dcc$PayAmtBinJun05 <- as.numeric(as.character(dcc$PayAmtBinJun05))
+sapply(dcc$PayAmtBinJun05, class)
+PayJunCut <- cut(dcc$PayAmtBinJun05, breaks = c(-1000000, 0, 1000, 1500, 2000, 2500, 5000, 10000, 25000, 100000, 1000000),
+                 labels = c("ZeroPayAmtJun", "1KPayAmtJun", "1.5KPayAmtJun", "2KPayAmtJun", "2.5KPayAmtJun", "5KPayAmtJun", "10KPayAmtJun", "25KPayAmtJun", "100KPayAmtJun", ">100KPayAmtJun"))
+dcc$PayAmtBinJun05 <- PayJunCut
+
+dcc$PayAmtBinMay05 <- paste(dcc$PayAmtMay05)
+dcc$PayAmtBinMay05 <- as.numeric(as.character(dcc$PayAmtBinMay05))
+sapply(dcc$PayAmtBinMay05, class)
+PayMayCut <- cut(dcc$PayAmtBinMay05, breaks = c(-1000000, 0, 1000, 1500, 2000, 2500, 5000, 10000, 25000, 100000, 1000000),
+                 labels = c("ZeroPayAmtMay", "1KPayAmtMay", "1.5KPayAmtMay", "2KPayAmtMay", "2.5KPayAmtMay", "5KPayAmtMay", "10KPayAmtMay", "25KPayAmtMay", "100KPayAmtMay", ">100KPayAmtMay"))
+dcc$PayAmtBinMay05 <- PayMayCut
+
+dcc$PayAmtBinApr05 <- paste(dcc$PayAmtApr05)
+dcc$PayAmtBinApr05 <- as.numeric(as.character(dcc$PayAmtBinApr05))
+sapply(dcc$PayAmtBinApr05, class)
+PayAprCut <- cut(dcc$PayAmtBinApr05, breaks = c(-1000000, 0, 1000, 1500, 2000, 2500, 5000, 10000, 25000, 100000, 1000000),
+                 labels = c("ZeroPayAmtApr", "1KPayAmtApr", "1.5KPayAmtApr", "2KPayAmtApr", "2.5KPayAmtApr", "5KPayAmtApr", "10KPayAmtApr", "25KPayAmtApr", "100KPayAmtApr", ">100KPayAmtApr"))
+dcc$PayAmtBinApr05 <- PayAprCut
+```
+
+## Preliminary Exploration
+
+The goal of preliminary exploration was to identify independent varibles that appear to have some predictive power of default. Our baseline for comparison is simply the average default rate across the data set.
+
+``` {r eval = TRUE, echo = TRUE}
+table(dcc$DefaultOct05)/length(dcc$DefaultOct05)
+```
+
+Across 30,000 loans, 22.12% default and 77.88% do not default. We examined the default rate for each independent variable and compared the results to our baseline.
+
+Below are the graphs for those variables that appear to have a strong influence on default.
+
+##### Credit Limit
+
+``` {r eval = TRUE, echo = FALSE}
+hlines <- data.frame(baseline = 0.2212, label = "Baseline default rate")
+ggplot(dcc, aes(LimitAmtBin, fill=Default1Oct05)) + 
+  geom_bar(position = position_fill(), colour = "black") +
+  theme(axis.text.x = element_text(angle = 60, hjust=1), plot.title = element_text(hjust = 0.5)) + 
+  labs(title = "Credit Limit Amount vs Default", x = "Limit Amount Bin", y = "Percentage") +
+  guides(fill=guide_legend(title = "October Action")) +
+  scale_y_continuous(labels = scales::percent) +
+  geom_hline(data = hlines, aes(yintercept = baseline, colour = label)) + 
+  scale_colour_manual(NULL, values = "green")
+```
+
+Those with the lowest credit limits have the highest default rates, and those with the highest credit limits have the lowest default rates. Default rates are near 40.0% for the 10K bucket, and decline with each increasing limit bin.  The largest credit limit sees a default rate of just over 11.0%. 
+
+##### Age
+
+``` {r eval = TRUE, echo = FALSE}
+hlines <- data.frame(baseline = 0.2212, label = "Baseline default rate")
+ggplot(dcc, aes(AgeBin, fill=Default1Oct05)) + 
+  geom_bar(position = position_fill(), colour = "black") +
+  theme(axis.text.x = element_text(angle = 60, hjust=1), plot.title = element_text(hjust = 0.5)) + 
+  labs(title = "Age vs Default", x = "Age Bin", y = "Percentage") +
+  guides(fill=guide_legend(title = "October Action")) +
+  scale_y_continuous(labels = scales::percent) +
+  geom_hline(data = hlines, aes(yintercept = baseline, colour = label)) + 
+  scale_colour_manual(NULL, values = "green")
+```
+
+The age breakdown shows a different trend.  The youngest and oldest bins (21 to 25 and those between 61 to 80) have the highest default rates, both approaching 27.0%.  However, middle-age borrowers (31-35) have the lowest default rate of 19.42%. Default rates based on age have a V shape. At the extremes, loans appear to be riskier.  Loans to the middle age crowd appear to be safer.
+
+##### Education
+
+``` {r eval = TRUE, echo = FALSE}
+hlines <- data.frame(baseline = 0.2212, label = "Baseline default rate")
+ggplot(dcc, aes(Education1, fill=Default1Oct05)) + 
+  geom_bar(position = position_fill(), colour = "black") +
+  theme(axis.text.x = element_text(angle = 60, hjust=1), plot.title = element_text(hjust = 0.5)) + 
+  labs(title = "Education vs Default", x = "Education Level", y = "Percentage") +
+  guides(fill=guide_legend(title = "October Action")) +
+  scale_y_continuous(labels = scales::percent) +
+  geom_hline(data = hlines, aes(yintercept = baseline, colour = label)) + 
+  scale_colour_manual(NULL, values = "green")
+```
+
+Education shows an interesting trend that intuitively makes sense.  The higher the level of education, the lower the default rate.  For example, those with only a high school education default over 25% of the time, while those with only a bachelors degree have a default rate of 23.73%, which is higher than our baseline, but still an improvement over high school.  Finally, those with a graduate degree have the lowest default rate of 19.23%.
+
+##### Gender
+
+``` {r eval = TRUE, echo = FALSE}
+hlines <- data.frame(baseline = 0.2212, label = "Baseline default rate")
+ggplot(dcc, aes(Gender1, fill=Default1Oct05)) + 
+  geom_bar(position = position_fill(), colour = "black") +
+  theme(axis.text.x = element_text(angle = 60, hjust=1), plot.title = element_text(hjust = 0.5)) + 
+  labs(title = "Gender vs Default", x = "Gender", y = "Percentage") +
+  guides(fill=guide_legend(title = "October Action")) +
+  scale_y_continuous(labels = scales::percent) +
+  geom_hline(data = hlines, aes(yintercept = baseline, colour = label)) + 
+  scale_colour_manual(NULL, values = "green")
+```
+
+Males have a 24.24% default rate while females have a 20.73% default rate.  There is a wide disparity between the two groups, with males well above the baseline default rate and females well below.
+
+##### Marriage Status
+
+``` {r eval = TRUE, echo = FALSE}
+hlines <- data.frame(baseline = 0.2212, label = "Baseline default rate")
+ggplot(dcc, aes(Marriage1, fill=Default1Oct05)) + 
+  geom_bar(position = position_fill(), colour = "black") +
+  theme(axis.text.x = element_text(angle = 60, hjust=1), plot.title = element_text(hjust = 0.5)) + 
+  labs(title = "Marriage vs Default", x = "Marriage Status", y = "Percentage") +
+  guides(fill=guide_legend(title = "October Action")) +
+  scale_y_continuous(labels = scales::percent) +
+  geom_hline(data = hlines, aes(yintercept = baseline, colour = label)) + 
+  scale_colour_manual(NULL, values = "green")
+```
+
+Marriage status provides a mixed picture. Both married and divorced borrowers default around 23.5% of the time while single borrowers who haven't been married default 20.92% of the time. 
+
+##### Monthly Payment Status
+
+``` {r eval = TRUE, echo = FALSE}
+hlines <- data.frame(baseline = 0.2212, label = "Baseline default rate")
+ggplot(dcc, aes(Status1Sep05, fill=Default1Oct05)) + 
+  geom_bar(position = position_fill(), colour = "black") +
+  theme(axis.text.x = element_text(angle = 60, hjust=1), plot.title = element_text(hjust = 0.5)) + 
+  labs(title = "September Payment Status vs Default", x = "Payment Status", y = "Percentage") +
+  guides(fill=guide_legend(title = "October Action")) +
+  scale_y_continuous(labels = scales::percent) +
+  geom_hline(data = hlines, aes(yintercept = baseline, colour = label)) + 
+  scale_colour_manual(NULL, values = "green")
+```
+
+Only September is shown since all six months have very similar default rates for each payment status. The payment status shows a much lower default rate than the baseline for those that fall into the No Consumption, Paid in full or Revolving bins. These bins represent borrowers that are prompt in paying off their monthly debt.
+
+Loans that are two or more months behind see default rates that are 50% or higher regardless of what month they are behind. We see that there isn't much middle ground when it comes to payment status. If a cardholder is behind they are much more likely to default compared to the baseline. If they are on time, they are much less likely to default compared to the baseline.
+
+##### Monthly Payment Amount
+
+``` {r eval = TRUE, echo = FALSE}
+hlines <- data.frame(baseline = 0.2212, label = "Baseline default rate")
+ggplot(dcc, aes(PayAmtBinSep05, fill=Default1Oct05)) + 
+  geom_bar(position = position_fill(), colour = "black") +
+  theme(axis.text.x = element_text(angle = 60, hjust=1), plot.title = element_text(hjust = 0.5)) + 
+  labs(title = "September Pay Amount vs Default", x = "Payment Amount", y = "Percentage") +
+  guides(fill=guide_legend(title = "October Action")) +
+  scale_y_continuous(labels = scales::percent) +
+  geom_hline(data = hlines, aes(yintercept = baseline, colour = label)) + 
+  scale_colour_manual(NULL, values = "green")
+```
+
+Only September is shown since all six months have very similar default rates for each payment amount. We see a very clear trend with the payment amount variables.  The lower the payment, the higher the default rate. As payment amounts reached the 100K and >100K amounts, default rates hovered around 8%, well below the baseline.  Clearly the higher the monthly payment amount, the lower the default rate.
+
+## Machine Learning
+
+In this section we used machine learning methods to build three different models that predict the probability of either a default or no default across the loans in the data set.  We built a logistic regression model, a classification and regression tree (CART), and a random forest model.
+
+We saw earlier that the default rate across all loans is 22.12%, which means that 77.88% of loans are not defaulting.  Our goal was to improve upon the baseline with each model.
+
+### Logistic Regression
+
+We first split the data into a training data set and testing data set. The training set was used to discover potentially predictive relationships. The testing set was used to assess the performance of these relationships. 
+
+Our training set used 75% of the observations, and our testing set used 25%. The set.seed variable was used to make sure the dependent variable (default) was well balanced in both the training and testing sets.  
+
+``` {r eval = TRUE, echo = TRUE}
+# Split data into training and testing set with a 75/25 ratio
+set.seed(64)
+split = sample.split(dcc$DefaultOct05, SplitRatio = 0.75)
+dccTrain = subset(dcc, split == TRUE)
+dccTest = subset(dcc, split == FALSE)
+```
+
+``` {r eval = TRUE, echo = TRUE}
+# Check rows for both the training and testing set
+nrow(dccTrain)
+nrow(dccTest)
+```
+
+We see there are 22,500 rows in the training data set and 7,500 in the testing data set which is consistent with a 75/25 split.
+
+We used a backward selection appoach in building the logistic regression model which starts with a large number of independent variables, and removes those with no significane with each iteration of the model.
+
+##### Model1
+
+``` {r eval = TRUE, echo = TRUE}
+# Model 1 starts with almost all the independent variables
+dccLog1 = glm(DefaultOct05 ~ LimitAmt + Gender + Education + Marriage + Age +
+                StatusSep05 + StatusAug05 + StatusJul05 + StatusJun05 + StatusMay05 +
+                StatusApr05 + PayAmtSep05 + PayAmtAug05 + PayAmtMay05 + PayAmtApr05 +
+                BalSep05 + BalAug05 + BalJul05 + BalJun05 + BalMay05 + BalApr05, 
+              data=dccTrain, family=binomial)
+
+summary(dccLog1)
+```
+
+In the first model, 7 variables were not significant. We removed these variables and reran the model. 
+
+##### Model2
+
+``` {r eval = TRUE, echo = TRUE}
+# Model 2 removes insignificant variables
+dccLog2 = glm(DefaultOct05 ~ LimitAmt + Gender + Marriage + Age +
+                StatusSep05 + StatusAug05 + StatusJul05 + PayAmtSep05 + PayAmtAug05 + 
+                PayAmtMay05 + BalSep05 + BalAug05 + BalMay05 + BalApr05, 
+              data=dccTrain, family=binomial)
+
+summary(dccLog2)
+```
+
+We see an improvement in the AIC score from 20935 to 20933, but one of the remaining variables was not significant. Once again, we removed this variable and reran the model.
+
+##### Model3
+
+``` {r eval = TRUE, echo = TRUE}
+# Model 3 removes one more that is insignificant
+dccLog3 = glm(DefaultOct05 ~ LimitAmt + Gender + Marriage + Age +
+                StatusSep05 + StatusAug05 + StatusJul05 + PayAmtSep05 + PayAmtAug05 + 
+                PayAmtMay05 + BalSep05 + BalAug05 + BalApr05, 
+              data=dccTrain, family=binomial)
+
+summary(dccLog3)
+```
+
+The April Balance amount was insignificant.  After removing this variable we reran the model once more, however the AIC score was slightly higher (moving from 20933 to 20934)
+
+##### Model4
+
+``` {r eval = TRUE, echo = TRUE}
+# Model 4 shows all remaining variables with significance
+dccLog4 = glm(DefaultOct05 ~ LimitAmt + Gender + Marriage + Age +
+                StatusSep05 + StatusAug05 + StatusJul05 + PayAmtSep05 + PayAmtAug05 + 
+                PayAmtMay05 + BalSep05 + BalAug05, 
+              data=dccTrain, family=binomial)
+
+summary(dccLog4)
+```
+
+Model 4 appeared to be the best mix of independent variables as it delivered an AIC score of 20934, and showed significance of between 0 and 0.001 or between 0.001 and 0.01 for all independent variables. The coefficients for Age, payment status, and the August balance variable are positive, which indicates that higher values are indicative of a higher chance of default.  
+
+#### Predict the data
+
+By using a threshold value, we can convert our probabilities to predictions.  If the probability of default is greater than the threshold, then we predict default. If its below, then we predict no default.  
+
+Using a threshold of 0.5, we examined how our model works with the test data set.
+
+``` {r eval = TRUE, echo = TRUE}
+# Prediction on Test data
+predictdccTest = predict(dccLog4, type="response", newdata = dccTest)
+table(dccTest$DefaultOct05, predictdccTest > 0.5)
+```
+
+The matrix above shows the breakdown of of all defaults.  The rows are the acutal result (0 = no default, 1 = default), the columns are the predictions. We see that out of 7,500 occurrences, we have 6090 correct predictions (5682 loans predicted to be paid off, 408 predicted to default). 
+
+However, 1251 loans did default that were predicted to be paid off. We also see that of the loans predicted to default, 159 were actually paid off.
+
+Our overall accuracy measures the number of correct predictions divided by the total number of loans.
+
+``` {r eval = TRUE, echo = TRUE}
+# Check for accuracy of model
+TestAccuracy = (5682 + 408)/(5682 + 408 + 1251 + 159)
+TestAccuracy
+```
+
+The accuracy of the model is 81.2%.
+
+This tells us that our model is a better predictor of default compared to a random guess, or our baseline (77.88%).
+
+### Classification Tree
+
+While logistic regression shows how an independent variable may be predictive for a specific outcome, it's difficult to understand which factors are most important, and to evaluate what the prediction will be for a new case. 
+
+The classification tree also predicts the probability of a specific outcome. By following a split in the tree, we can predict the most frequent outcome in the training set that followed the same path.  
+
+We used the same training and testing as with our logistic regression model. 
+
+``` {r eval = TRUE, echo = TRUE}
+# Split data and create train/test sets
+set.seed(64)
+split = sample.split(dcc$DefaultOct05, SplitRatio = 0.75)
+dccTrain = subset(dcc, split == TRUE)
+dccTest = subset(dcc, split == FALSE)
+```
+
+We then built the model, examined the tree and its accuracy.
+
+``` {r eval = TRUE, echo = TRUE}
+# Build classification tree model with all variables
+dccTree = rpart(DefaultOct05 ~ LimitAmtBin + Gender1 + Education1 + Marriage1 + AgeBin + StatusSep05 + 
+                  StatusAug05 + StatusJul05 + StatusJun05 + StatusMay05 + StatusApr05 +
+                  PayAmtSep05 + PayAmtAug05 + PayAmtJul05 + PayAmtJun05 + PayAmtMay05 + 
+                  PayAmtApr05 + BalSep05 + BalAug05 + BalJul05 + BalJun05 + BalMay05 + BalApr05, 
+                data = dccTrain, method = "class", control = rpart.control(minbucket = 25))
+
+# Look at tree
+prp(dccTree)
+```
+
+The tree shows the payment status for September variable as its only node. If a loan is less than 1.5 months behind, then it is less likely to default. If a loan is more than 1.5 months behind its more likely to default.
+
+Only one node in the tree which may be confusing since our model includes all 23 independent variables.
+An important note is that the September payment status variable precedes our dependent variable by one month. This may give extra weight to September in the model. In practice, a financial institution would not be limited to the previous six months of data, and there may not be an ending date for every loan since credit card debt is revolving. This may explain why there is only one node for this specific study. 
+
+In order to force more nodes in the tree, we can change the complexity parameter (cp). We can look at a complexity parameters of .0025 and .001. Then we can compare the accuracy of all three CART models we've created.
+
+``` {r eval = TRUE, echo = TRUE}
+# Build classification tree model2 with all variables and cp = .0025
+dccTree2 = rpart(DefaultOct05 ~ LimitAmtBin + Gender1 + Education1 + Marriage1 + AgeBin + 
+                  StatusSep05 + StatusAug05 + StatusJul05 + StatusJun05 + StatusMay05 +
+                  StatusApr05 + PayAmtSep05 + PayAmtAug05 + PayAmtJul05 + PayAmtJun05 + 
+                  PayAmtMay05 + PayAmtApr05 + BalSep05 + BalAug05 + BalJul05 + 
+                  BalJun05 + BalMay05 + BalApr05, 
+                data = dccTrain, method = "class", 
+                control = rpart.control(minbucket = 25, cp = .0025))
+
+# Look at tree
+prp(dccTree2)
+```
+
+``` {r eval = TRUE, echo = TRUE}
+# Build classification tree model3 with all variables and cp = .001
+dccTree3 = rpart(DefaultOct05 ~ LimitAmtBin + Gender1 + Education1 + Marriage1 + AgeBin + 
+                  StatusSep05 + StatusAug05 + StatusJul05 + StatusJun05 + StatusMay05 +
+                  StatusApr05 + PayAmtSep05 + PayAmtAug05 + PayAmtJul05 + PayAmtJun05 + 
+                  PayAmtMay05 + PayAmtApr05 + BalSep05 + BalAug05 + BalJul05 + 
+                  BalJun05 + BalMay05 + BalApr05, 
+                data = dccTrain, method = "class", 
+                control = rpart.control(minbucket = 25, cp = .001))
+
+# Look at tree
+prp(dccTree3)
+```
+
+The second model with a cp of .0025 has multiple splits, while the third model with a cp of .001 has an even greater number of splits.  The first node for all three models is the September payment status variable. The other payment status variables appear quite frequently at other nodes.
+
+Finally, we can apply each of the models to our test data.
+
+``` {r eval = TRUE, echo = TRUE}
+# Apply three models on test set
+PredictCARTdcc = predict(dccTree, newdata = dccTest, type = "class")
+table(dccTest$DefaultOct05, PredictCARTdcc)
+
+PredictCART2dcc = predict(dccTree2, newdata = dccTest, type = "class")
+table(dccTest$DefaultOct05, PredictCART2dcc)
+
+PredictCART3dcc = predict(dccTree3, newdata = dccTest, type = "class")
+table(dccTest$DefaultOct05, PredictCART3dcc)
+```
+
+The confusion matrix shows the accuracy of each model.
+
+``` {r eval = TRUE, echo = TRUE}
+# Examine accuracy of each model
+CAccuracy = (5615 + 546)/(5615 + 546 + 1113 + 226)
+CAccuracy
+
+CA2ccuracy = (5594 + 562)/(5594 + 562 + 1097 + 247)
+CA2ccuracy
+
+CA3ccuracy = (5532 + 615)/(5532 + 615 + 1046 + 309)
+CA3ccuracy
+```
+
+Model one has the highest accuracy, but models two and three are very close behind, and have many more branches. 
+
+### Random Forest
+
+Our final approach was the random forest model. Random forest was designed to improve the accuracy of CART by building a large number of CART trees. Random forest selects data randomly with replacement.
+
+As with the previous models, we use the same split for the training and testing data sets.  We then tried the model on the testing data set.
+
+``` {r eval = TRUE, echo = TRUE}
+# Split data, build model, apply to test set
+set.seed(64)
+split = sample.split(dcc$DefaultOct05, SplitRatio = 0.75)
+dccTrain = subset(dcc, split == TRUE)
+dccTest = subset(dcc, split == FALSE)
+
+dccTrain$Default1Oct05 = as.factor(dccTrain$Default1Oct05)
+dccTest$Default1Oct05 = as.factor(dccTest$Default1Oct05)
+
+dccForest = randomForest(Default1Oct05 ~ LimitAmtBin + Gender + Education + AgeBin + StatusSep05 + 
+                           StatusAug05 + StatusJul05 + StatusJun05 + StatusMay05 + StatusApr05 +
+                           PayAmtSep05 + PayAmtAug05 + PayAmtJul05 + PayAmtJun05 + PayAmtMay05 +
+                           PayAmtApr05 +BalSep05 + BalAug05 + BalJul05 + BalJun05 + BalMay05 + 
+                           BalApr05, data = dccTrain, nodesize = 25, ntree = 200)
+
+PredictdccForest = predict(dccForest, newdata = dccTest)
+table(dccTest$DefaultOct05, PredictdccForest)
+```
+
+``` {r eval = TRUE, echo = TRUE}
+# Examine accuracy
+RAccuracy = (5548 + 598)/(5548 + 598 + 1061 + 293)
+RAccuracy
+```
+
+The accuracy of the random forrest model is 81.8%, which is in between the logistic model and CART model.
+
+### Conclusions
+
+1. Our three models improved upon the probability of a random loan being paid off (77.88%). Our logistic regression model had an accuracy of 81.2%. The CART model improved upon that number slightly with an accuracy of 82.1%, while the random forest model had an accuracy of 81.95%.
+
+2. While we've been able to imrpove upon our baseline depending on the model, this is a modest improvement and may not be enough for the credit card issuer to replace any existing loan screening mechanism.
+
+3. Payment status in the month immediately preceding the final month of the study appears to have a high level of significance. Due to the defined time periods of the study, and the revolving nature of credit card debt, this conclusion may not be accurate.
+
+### Recommendations
+
+1. When assessing the risk of a loan, an important feature for analysis is the potential return, not just the likelihood of default. While this data set did not include the interest rate for each loan, it's important for credit card issuers to factor this data point into the analysis. With both the likelihood of default and potential return, a credit card issuer will be able to identify which loans are most and least profitable which is ultimately more important than simply measuring the likelihood of default.
+
+2. Include both the borrower's credit rating and income in future analyis. These are thought to be very important predictors of the likelihood of repayment.  If both were included in the analysis, this assumption could be tested.
+
+3. Further examine the payment status in the month preceding the final month of the study. It's important to see if the CART model conclusion is simply a result of the start and end date of the study, or if the specific payment status month is a significant predictor of default.
