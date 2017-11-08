@@ -16,7 +16,7 @@ Data was cleaned and reformatted using packages from the tidyverse (dplyr, tidyr
 
 ### Data Exploration/Visualization
 
-Examine each independent variable versus default.
+Examined each independent variable versus default. Visualization used the ggplot2 package.
 
 ### Machine Learning
 
