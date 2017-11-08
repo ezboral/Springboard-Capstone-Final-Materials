@@ -8,7 +8,7 @@ This project examined the default rate for 30,000 credit card holders of a Taiwa
 
 ### Data Story 
 
-Is it possible to create a predictive model that can help credit card issuers reduce their default rates? Can we identify the characteristics of borrowers that may lead to higher or lower rates of default versus an average or baseline default rate?
+Is it possible to create a predictive model that can help credit card issuers reduce their write-off rates? Can we identify the characteristics of borrowers that may lead to higher or lower rates of default versus an average or baseline default rate?
 
 ### Data Wrangling
 
