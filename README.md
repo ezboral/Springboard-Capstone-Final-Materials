@@ -2,7 +2,7 @@
 
 The materials in this repository were created for the Springboard Foundations of Data Science Certificate. This is a curriculum which includes probability/statistics, data wrangling, data exploration, data visualization and machine learning.  All analysis was completed using the R programming language.
 
-### Capstond Project - Analyzing Credit Card Default Rates
+### Capstone Project - Analyzing Credit Card Default Rates
 
 This project examined the default rate for 30,000 credit card holders of a Taiwanese bank in 2005. 
 
